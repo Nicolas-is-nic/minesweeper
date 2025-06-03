@@ -82,6 +82,7 @@ class GameState:
         self.victory = False
         self.start_time = pygame.time.get_ticks()
         self.elapsed_time = 0
+        self.cheat_count = 1  # 新增：作弊次数计数器
 
     def create_board(self):
         board = [[Cell() for _ in range(COLS)] for _ in range(ROWS)]
@@ -155,6 +156,11 @@ def check_victory(game):
 def draw_board(game):
     screen.fill(COLORS["bg"])
 
+    # 获取鼠标位置
+    mouse_x, mouse_y = pygame.mouse.get_pos()
+    mouse_row = mouse_y // GRID_SIZE
+    mouse_col = mouse_x // GRID_SIZE
+
     # 绘制网格
     for i in range(ROWS):
         for j in range(COLS):
@@ -164,13 +170,17 @@ def draw_board(game):
             if cell.revealed:
                 pygame.draw.rect(screen, COLORS["revealed"], rect)
                 if cell.neighbor_mines > 0 and not cell.is_mine:
-                    # print(f"neighbor_mines: {cell.neighbor_mines}, type: {type(cell.neighbor_mines)}")
                     color = NUMBER_COLORS[cell.neighbor_mines]
                     text = font.render(str(cell.neighbor_mines), True, color)
                     screen.blit(text, (j * GRID_SIZE + (GRID_SIZE / 2 - 5) - 1, i * GRID_SIZE + (GRID_SIZE / 2 - 10) - 1))
                 elif cell.is_mine:
-                    pygame.draw.circle(screen, (0, 0, 0),
-                                       (j * GRID_SIZE + (GRID_SIZE / 2) - 1, i * GRID_SIZE + (GRID_SIZE / 2) - 1), 8)
+                    # 如果鼠标悬停在已翻开的格子上，且该格子是地雷且未被标记，则改变颜色
+                    if (i == mouse_row and j == mouse_col) and not cell.flagged:
+                        pygame.draw.circle(screen, (255, 182, 193),
+                                           (j * GRID_SIZE + (GRID_SIZE / 2) - 1, i * GRID_SIZE + (GRID_SIZE / 2) - 1), 8)
+                    else:
+                        pygame.draw.circle(screen, (0, 0, 0),
+                                           (j * GRID_SIZE + (GRID_SIZE / 2) - 1, i * GRID_SIZE + (GRID_SIZE / 2) - 1), 8)
             else:
                 pygame.draw.rect(screen, COLORS["hidden"], rect)
                 if cell.flagged:
@@ -180,6 +190,31 @@ def draw_board(game):
                         (j * GRID_SIZE + (GRID_SIZE // 2), i * GRID_SIZE + (GRID_SIZE // 1.5)),
                         (j * GRID_SIZE + (GRID_SIZE // 4), i * GRID_SIZE + (GRID_SIZE // 1.5))
                     ])
+
+    # 如果按下M键且鼠标悬停在已翻开的格子上，检查周围8格的地雷情况
+    keys = pygame.key.get_pressed()
+    if keys[pygame.K_m] and 0 <= mouse_row < ROWS and 0 <= mouse_col < COLS and game.cheat_count > 0:
+        cell = game.board[mouse_row][mouse_col]
+        if cell.revealed:
+            for i in range(max(0, mouse_row - 1), min(ROWS, mouse_row + 2)):
+                for j in range(max(0, mouse_col - 1), min(COLS, mouse_col + 2)):
+                    if i == mouse_row and j == mouse_col:
+                        continue
+                    neighbor = game.board[i][j]
+                    if neighbor.is_mine and not neighbor.flagged:
+                        # 将未标记的地雷格子颜色变为淡红色
+                        rect = pygame.Rect(j * GRID_SIZE, i * GRID_SIZE, GRID_SIZE - 2, GRID_SIZE - 2)
+                        pygame.draw.rect(screen, (255, 182, 193), rect)
+                        neighbor.cheat_highlighted = True  # 标记为作弊高亮
+            game.cheat_count -= 1  # 减少作弊次数
+
+    # 绘制被作弊高亮的地雷格子
+    for i in range(ROWS):
+        for j in range(COLS):
+            cell = game.board[i][j]
+            if hasattr(cell, 'cheat_highlighted') and cell.cheat_highlighted and cell.is_mine and not cell.flagged:
+                rect = pygame.Rect(j * GRID_SIZE, i * GRID_SIZE, GRID_SIZE - 2, GRID_SIZE - 2)
+                pygame.draw.rect(screen, (255, 182, 193), rect)
 
     # 状态显示
     if game.game_over or game.victory:
@@ -199,6 +234,10 @@ def draw_board(game):
         game.elapsed_time = (pygame.time.get_ticks() - game.start_time) // 1000
     time_text = font.render(f"Time: {game.elapsed_time}s", True, COLORS["timer"])
     screen.blit(time_text, (WIDTH - 120, HEIGHT - 40))
+
+    # 剩余作弊次数（调整位置到左上角）
+    cheat_text = font.render(f"Cheats: {game.cheat_count}", True, COLORS["mine_count"])
+    screen.blit(cheat_text, (10, HEIGHT - 70))
 
     pygame.display.flip()
 
@@ -252,6 +291,12 @@ def main():
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_r:  # 重置游戏
                     game = GameState()
+                elif event.key == pygame.K_SPACE:  # 空格键
+                    x, y = pygame.mouse.get_pos()
+                    col = x // GRID_SIZE
+                    row = y // GRID_SIZE
+                    if 0 <= row < ROWS and 0 <= col < COLS:
+                        handle_middle_click(game, row, col)
 
         draw_board(game)
         clock.tick(30)
