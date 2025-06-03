@@ -47,15 +47,18 @@ def resource_path(relative_path):
 pygame.init()
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
 
-# 加载图标文件并创建Surface对象
-icon = pygame.image.load(resource_path("icons/favicon.ico")).convert_alpha()
-# 设置窗口的新图标
-pygame.display.set_icon(icon)
+try:
+    # 加载图标文件并创建Surface对象
+    icon = pygame.image.load(resource_path("icons/favicon.ico")).convert_alpha()
+    # 设置窗口的新图标
+    pygame.display.set_icon(icon)
+except:
+    pass
 
 pygame.display.set_caption("扫雷-自制版")
 # font = pygame.font.SysFont("Arial", 20, bold=True)
 # 使用系统自带中文字体（Windows/Mac通用方案）
-font = pygame.font.SysFont("SimHei", 20)  # 黑体
+font = pygame.font.SysFont("SimHei", max(int(20*COLS/30), 14))  # 黑体
 
 
 clock = pygame.time.Clock()
@@ -329,29 +332,191 @@ def draw_board(game):
     if game.game_over or game.victory:
         status_text = "Game Over!" if game.game_over else "You Win!"
         text = font.render(status_text, True, COLORS["mine_count"])
-        screen.blit(text, (WIDTH // 2 - 60, HEIGHT - 70))
+        text_rect = text.get_rect(center=(WIDTH // 2, HEIGHT // 2))  # 修改：将文字显示在屏幕中央
+        screen.blit(text, text_rect)
         text = font.render("Press R to restart", True, COLORS["mine_count"])
-        screen.blit(text, (WIDTH // 2 - 70, HEIGHT - 40))
+        text_rect = text.get_rect(center=(WIDTH // 2, HEIGHT // 2 + 30))  # 修改：将文字显示在屏幕中央
+        screen.blit(text, text_rect)
 
     # 剩余雷数
     remaining = MINES - sum(cell.flagged for row in game.board for cell in row)
     text = font.render(f"Mines left: {remaining}", True, COLORS["mine_count"])
-    screen.blit(text, (10, HEIGHT - 40))
+    text_rect = text.get_rect(topleft=(10, HEIGHT - 40))
+    screen.blit(text, text_rect)
 
     # 游戏时间
     if not game.game_over and not game.victory and (game.first_click is False):  # 游戏未结束时才更新时间
         game.elapsed_time = (pygame.time.get_ticks() - game.start_time) // 1000
     time_text = font.render(f"Time: {game.elapsed_time}s", True, COLORS["timer"])
-    screen.blit(time_text, (WIDTH - 120, HEIGHT - 40))
+    text_rect = time_text.get_rect(topright=(WIDTH - 10, HEIGHT - 40))
+    screen.blit(time_text, text_rect)
 
     # 剩余作弊次数（调整位置到左上角）
     cheat_text = font.render(f"Cheats(Press M): {game.cheat_count}", True, COLORS["mine_count"])
-    screen.blit(cheat_text, (10, HEIGHT - 70))
+    text_rect = cheat_text.get_rect(topleft=(10, HEIGHT - 70))
+    screen.blit(cheat_text, text_rect)
 
     pygame.display.flip()
 
 
+def show_setting_dialog(screen):
+    """ 使用pygame实现设置对话框 """
+    # 创建半透明背景
+    overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+    overlay.fill((0, 0, 0, 128))  # 半透明黑色背景
+    screen.blit(overlay, (0, 0))
+
+    # 绘制对话框
+    dialog_width = 400
+    dialog_height = 300
+    dialog_x = (WIDTH - dialog_width) // 2
+    dialog_y = (HEIGHT - dialog_height) // 2
+    pygame.draw.rect(screen, (255, 255, 255), (dialog_x, dialog_y, dialog_width, dialog_height))
+
+    # 绘制提示文字
+    text = font.render("自定义游戏设置", True, (0, 0, 0))
+    text_rect = text.get_rect(center=(WIDTH // 2, dialog_y + 30))
+    screen.blit(text, text_rect)
+
+    # 绘制行数输入框
+    rows_text = font.render("行数 (9-30):", True, (0, 0, 0))
+    screen.blit(rows_text, (dialog_x + 50, dialog_y + 70))
+    rows_input = pygame.Rect(dialog_x + 200, dialog_y + 70, 100, 30)
+    pygame.draw.rect(screen, (200, 200, 200), rows_input)
+
+    # 绘制列数输入框
+    cols_text = font.render("列数 (9-30):", True, (0, 0, 0))
+    screen.blit(cols_text, (dialog_x + 50, dialog_y + 120))
+    cols_input = pygame.Rect(dialog_x + 200, dialog_y + 120, 100, 30)
+    pygame.draw.rect(screen, (200, 200, 200), cols_input)
+
+    # 绘制雷数输入框
+    mines_text = font.render("雷数 (1-199):", True, (0, 0, 0))
+    screen.blit(mines_text, (dialog_x + 50, dialog_y + 170))
+    mines_input = pygame.Rect(dialog_x + 200, dialog_y + 170, 100, 30)
+    pygame.draw.rect(screen, (200, 200, 200), mines_input)
+
+    # 绘制确认按钮
+    confirm_button = pygame.Rect(dialog_x + 50, dialog_y + 230, 120, 50)
+    pygame.draw.rect(screen, (0, 200, 0), confirm_button)
+    confirm_text = font.render("确定", True, (255, 255, 255))
+    confirm_text_rect = confirm_text.get_rect(center=confirm_button.center)
+    screen.blit(confirm_text, confirm_text_rect)
+
+    # 绘制取消按钮
+    cancel_button = pygame.Rect(dialog_x + 230, dialog_y + 230, 120, 50)
+    pygame.draw.rect(screen, (200, 0, 0), cancel_button)
+    cancel_text = font.render("取消", True, (255, 255, 255))
+    cancel_text_rect = cancel_text.get_rect(center=cancel_button.center)
+    screen.blit(cancel_text, cancel_text_rect)
+
+    pygame.display.flip()
+
+    # 输入框内容，设置默认值
+    rows_value = "16"
+    cols_value = "30"
+    mines_value = "99"
+
+    # 光标相关变量
+    cursor_visible = True
+    cursor_timer = 0
+    active_input = None  # 当前激活的输入框
+
+    while True:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                sys.exit()
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                if confirm_button.collidepoint(event.pos):
+                    try:
+                        rows = int(rows_value)
+                        cols = int(cols_value)
+                        mines = int(mines_value)
+                        if 9 <= rows <= 30 and 9 <= cols <= 30 and 1 <= mines <= min(rows * cols - 9, 199):
+                            return rows, cols, mines
+                    except ValueError:
+                        pass
+                elif cancel_button.collidepoint(event.pos):
+                    return None
+                # 检测点击输入框
+                if rows_input.collidepoint(event.pos):
+                    active_input = 'rows'
+                elif cols_input.collidepoint(event.pos):
+                    active_input = 'cols'
+                elif mines_input.collidepoint(event.pos):
+                    active_input = 'mines'
+                else:
+                    active_input = None
+            if event.type == pygame.KEYDOWN and active_input:
+                if event.key == pygame.K_BACKSPACE:
+                    if active_input == 'rows':
+                        rows_value = rows_value[:-1]
+                    elif active_input == 'cols':
+                        cols_value = cols_value[:-1]
+                    elif active_input == 'mines':
+                        mines_value = mines_value[:-1]
+                else:
+                    if event.unicode.isdigit():
+                        if active_input == 'rows':
+                            rows_value += event.unicode
+                        elif active_input == 'cols':
+                            cols_value += event.unicode
+                        elif active_input == 'mines':
+                            mines_value += event.unicode
+
+        # 更新输入框内容
+        pygame.draw.rect(screen, (200, 200, 200), rows_input)
+        rows_text = font.render(rows_value, True, (0, 0, 0))
+        screen.blit(rows_text, (rows_input.x + 5, rows_input.y + 5))
+        if active_input == 'rows' and cursor_visible:
+            cursor_x = rows_input.x + 5 + rows_text.get_width()
+            pygame.draw.line(screen, (0, 0, 0), (cursor_x, rows_input.y + 5), (cursor_x, rows_input.y + 25))
+
+        pygame.draw.rect(screen, (200, 200, 200), cols_input)
+        cols_text = font.render(cols_value, True, (0, 0, 0))
+        screen.blit(cols_text, (cols_input.x + 5, cols_input.y + 5))
+        if active_input == 'cols' and cursor_visible:
+            cursor_x = cols_input.x + 5 + cols_text.get_width()
+            pygame.draw.line(screen, (0, 0, 0), (cursor_x, cols_input.y + 5), (cursor_x, cols_input.y + 25))
+
+        pygame.draw.rect(screen, (200, 200, 200), mines_input)
+        mines_text = font.render(mines_value, True, (0, 0, 0))
+        screen.blit(mines_text, (mines_input.x + 5, mines_input.y + 5))
+        if active_input == 'mines' and cursor_visible:
+            cursor_x = mines_input.x + 5 + mines_text.get_width()
+            pygame.draw.line(screen, (0, 0, 0), (cursor_x, mines_input.y + 5), (cursor_x, mines_input.y + 25))
+
+        # 光标闪烁效果
+        cursor_timer += 1
+        if cursor_timer >= 400:
+            cursor_visible = not cursor_visible
+            cursor_timer = 0
+
+        pygame.display.flip()
+
+
 def main():
+    global ROWS, COLS, MINES, WIDTH, HEIGHT, GRID_SIZE, font, screen
+
+    # 初始化屏幕
+    screen = pygame.display.set_mode((WIDTH, HEIGHT))
+
+    # 显示设置对话框
+    settings = show_setting_dialog(screen)
+    if settings is None:
+        pygame.quit()
+        sys.exit()
+
+    ROWS, COLS, MINES = settings
+    WIDTH, HEIGHT = GRID_SIZE * COLS, GRID_SIZE * ROWS + 80
+
+    font = pygame.font.SysFont("SimHei", max(int(20*COLS/30), 14))
+
+    # 重新初始化屏幕
+    screen = pygame.display.set_mode((WIDTH, HEIGHT))
+    pygame.display.set_caption("扫雷-自制版")
+
     game = GameState()
     running = True
 
