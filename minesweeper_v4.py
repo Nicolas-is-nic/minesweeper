@@ -1,12 +1,13 @@
 import pygame
 import random
 import sys
+import os
 
 # 游戏配置
 
 GRID_SIZE = 30
-ROWS = 25
-COLS = 25
+ROWS = 16
+COLS = 30
 
 WIDTH, HEIGHT = GRID_SIZE * COLS, GRID_SIZE * ROWS + 80
 MINES = 99
@@ -31,9 +32,26 @@ NUMBER_COLORS = {
     8: (0, 0, 0)
 }
 
+
+def resource_path(relative_path):
+    """ 获取打包后文件的绝对路径 """
+    if hasattr(sys, '_MEIPASS'):
+        # 打包后的临时目录
+        base_path = sys._MEIPASS
+    else:
+        # 开发环境的当前目录
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
+
 # 初始化Pygame
 pygame.init()
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
+
+# 加载图标文件并创建Surface对象
+icon = pygame.image.load(resource_path("icons/favicon.ico")).convert_alpha()
+# 设置窗口的新图标
+pygame.display.set_icon(icon)
+
 pygame.display.set_caption("扫雷-自制版")
 # font = pygame.font.SysFont("Arial", 20, bold=True)
 # 使用系统自带中文字体（Windows/Mac通用方案）
@@ -41,6 +59,7 @@ font = pygame.font.SysFont("SimHei", 20)  # 黑体
 
 
 clock = pygame.time.Clock()
+
 
 
 class Cell:
@@ -232,24 +251,42 @@ def draw_board(game):
             cell = game.board[i][j]
             rect = pygame.Rect(j * GRID_SIZE, i * GRID_SIZE, GRID_SIZE - 2, GRID_SIZE - 2)
 
-            if cell.revealed:
+            if cell.revealed or game.game_over or game.victory:  # 修改：游戏结束时显示所有地雷
                 pygame.draw.rect(screen, COLORS["revealed"], rect)
                 if cell.neighbor_mines > 0 and not cell.is_mine:
-                    color = NUMBER_COLORS[cell.neighbor_mines]
-                    text = font.render(str(cell.neighbor_mines), True, color)
-                    screen.blit(text, (j * GRID_SIZE + (GRID_SIZE / 2 - 5) - 1, i * GRID_SIZE + (GRID_SIZE / 2 - 10) - 1))
-                elif cell.is_mine:
-                    # 如果鼠标悬停在已翻开的格子上，且该格子是地雷且未被标记，则改变颜色
-                    if (i == mouse_row and j == mouse_col) and not cell.flagged:
-                        pygame.draw.circle(screen, (255, 182, 193),
-                                           (j * GRID_SIZE + (GRID_SIZE / 2) - 1, i * GRID_SIZE + (GRID_SIZE / 2) - 1), 8)
+                    if cell.flagged:
+                        # 实际不为地雷的旗帜格子，显示为打叉
+                        pygame.draw.line(screen, (255, 0, 0),
+                                         (j * GRID_SIZE + GRID_SIZE // 4, i * GRID_SIZE + GRID_SIZE // 4),
+                                         (j * GRID_SIZE + 3 * GRID_SIZE // 4, i * GRID_SIZE + 3 * GRID_SIZE // 4), 3)
+                        pygame.draw.line(screen, (255, 0, 0),
+                                         (j * GRID_SIZE + GRID_SIZE // 4, i * GRID_SIZE + 3 * GRID_SIZE // 4),
+                                         (j * GRID_SIZE + 3 * GRID_SIZE // 4, i * GRID_SIZE + GRID_SIZE // 4), 3)
                     else:
+                        color = NUMBER_COLORS[cell.neighbor_mines]
+                        text = font.render(str(cell.neighbor_mines), True, color)
+                        screen.blit(text, (j * GRID_SIZE + (GRID_SIZE / 2 - 5) - 1, i * GRID_SIZE + (GRID_SIZE / 2 - 10) - 1))
+                elif cell.is_mine:
+                    if game.game_over or game.victory:
+                        if cell.flagged:
+                            # 保持旗帜不变
+                            pygame.draw.polygon(screen, (255, 0, 0), [
+                                (j * GRID_SIZE + GRID_SIZE // 2, i * GRID_SIZE + (GRID_SIZE // 4)),
+                                (j * GRID_SIZE + (GRID_SIZE // 2), i * GRID_SIZE + (GRID_SIZE // 1.5)),
+                                (j * GRID_SIZE + (GRID_SIZE // 4), i * GRID_SIZE + (GRID_SIZE // 1.5))
+                            ])
+                        else:
+                            # 显示地雷
+                            pygame.draw.circle(screen, (0, 0, 0),
+                                               (j * GRID_SIZE + (GRID_SIZE / 2) - 1, i * GRID_SIZE + (GRID_SIZE / 2) - 1), 8)
+                    else:
+                        # 正常显示地雷
                         pygame.draw.circle(screen, (0, 0, 0),
                                            (j * GRID_SIZE + (GRID_SIZE / 2) - 1, i * GRID_SIZE + (GRID_SIZE / 2) - 1), 8)
             else:
                 pygame.draw.rect(screen, COLORS["hidden"], rect)
                 if cell.flagged:
-                    # 绘制红色三角形旗帜
+                    # 保持旗帜不变
                     pygame.draw.polygon(screen, (255, 0, 0), [
                         (j * GRID_SIZE + GRID_SIZE // 2, i * GRID_SIZE + (GRID_SIZE // 4)),
                         (j * GRID_SIZE + (GRID_SIZE // 2), i * GRID_SIZE + (GRID_SIZE // 1.5)),
@@ -308,7 +345,7 @@ def draw_board(game):
     screen.blit(time_text, (WIDTH - 120, HEIGHT - 40))
 
     # 剩余作弊次数（调整位置到左上角）
-    cheat_text = font.render(f"Cheats: {game.cheat_count}", True, COLORS["mine_count"])
+    cheat_text = font.render(f"Cheats(Press M): {game.cheat_count}", True, COLORS["mine_count"])
     screen.blit(cheat_text, (10, HEIGHT - 70))
 
     pygame.display.flip()
