@@ -2,6 +2,7 @@ import pygame
 import random
 import sys
 import os
+import pyperclip
 
 # 游戏配置
 
@@ -111,6 +112,9 @@ class GameState:
         self.elapsed_time = 0
         self.cheat_count = 1  # 新增：作弊次数计数器
         self.first_click = True  # 新增：标记是否为第一次点击
+        self.map_seed = None  # 新增：地图种子
+        self.map_seed_save = False
+        self.user_provided_seed = False  # 新增：标记种子是否是用户提供的
 
     def create_board(self, first_click_row, first_click_col):
         return create_board_safe_first_click(first_click_row, first_click_col)
@@ -124,8 +128,50 @@ class GameState:
         return count
 
 
-def create_board_safe_first_click(first_click_row, first_click_col):
+def generate_map_seed(first_click_row, first_click_col, board):
+    """ 生成地图种子 """
+    import base64
+    import json
+    import zlib
+    data = {
+        "rows": ROWS,
+        "cols": COLS,
+        "mines": MINES,
+        "first_click": (first_click_row, first_click_col),
+        "board": [[cell.is_mine for cell in row] for row in board]
+    }
+    compressed_data = zlib.compress(json.dumps(data).encode())
+    return base64.urlsafe_b64encode(compressed_data).decode()
+
+def parse_map_seed(seed):
+    """ 解析地图种子 """
+    import base64
+    import json
+    import zlib
+    try:
+        decompressed_data = zlib.decompress(base64.urlsafe_b64decode(seed))
+        data = json.loads(decompressed_data.decode())
+        return data
+    except:
+        return None
+
+def create_board_safe_first_click(first_click_row, first_click_col, seed=None):
     """ 确保第一次点击的格子及其周围8个格子都不是雷 """
+    if seed:
+        parsed_seed = parse_map_seed(seed)
+        if parsed_seed and parsed_seed["rows"] == ROWS and parsed_seed["cols"] == COLS and parsed_seed["mines"] == MINES:
+            board = [[Cell() for _ in range(COLS)] for _ in range(ROWS)]
+            for i in range(ROWS):
+                for j in range(COLS):
+                    board[i][j].is_mine = parsed_seed["board"][i][j]
+
+            # 修复：添加雷数计算
+            for i in range(ROWS):
+                for j in range(COLS):
+                    if not board[i][j].is_mine:
+                        board[i][j].neighbor_mines = count_neighbor_mines(board, i, j)
+            return board
+
     board = [[Cell() for _ in range(COLS)] for _ in range(ROWS)]
 
     # 生成所有可能的地雷位置，排除第一次点击的格子及其周围8个格子
@@ -190,6 +236,7 @@ def handle_middle_click(game, row, col):
 
 
 def check_victory(game):
+    """ 检查是否胜利 """
     safe_unrevealed = sum(1 for row in game.board for cell in row
                           if not cell.is_mine and not cell.revealed)
     return safe_unrevealed == 0
@@ -300,6 +347,14 @@ def draw_board(game):
                     text = font.render("?", True, (0, 0, 0))
                     screen.blit(text, (j * GRID_SIZE + (GRID_SIZE / 2 - 5) - 1, i * GRID_SIZE + (GRID_SIZE / 2 - 10) - 1))
 
+    # 如果用户传入了种子且处于首次点击前，绘制空心圆提示位置
+    if game.user_provided_seed and game.first_click:
+        parsed_seed = parse_map_seed(game.map_seed)
+        if parsed_seed:
+            first_click_row, first_click_col = parsed_seed["first_click"]
+            rect = pygame.Rect(first_click_col * GRID_SIZE, first_click_row * GRID_SIZE, GRID_SIZE - 2, GRID_SIZE - 2)
+            pygame.draw.circle(screen, (255, 255, 0), (rect.centerx, rect.centery), GRID_SIZE // 4, 2)
+
     # 如果按下M键且鼠标悬停在已翻开的格子上，检查周围8格的地雷情况
     keys = pygame.key.get_pressed()
     if keys[pygame.K_m] and 0 <= mouse_row < ROWS and 0 <= mouse_col < COLS and game.cheat_count > 0:
@@ -368,7 +423,7 @@ def show_setting_dialog(screen):
 
     # 绘制对话框
     dialog_width = 400
-    dialog_height = 300
+    dialog_height = 350  # 增加高度以容纳种子输入框
     dialog_x = (WIDTH - dialog_width) // 2
     dialog_y = (HEIGHT - dialog_height) // 2
     pygame.draw.rect(screen, (255, 255, 255), (dialog_x, dialog_y, dialog_width, dialog_height))
@@ -396,15 +451,21 @@ def show_setting_dialog(screen):
     mines_input = pygame.Rect(dialog_x + 200, dialog_y + 170, 100, 30)
     pygame.draw.rect(screen, (200, 200, 200), mines_input)
 
+    # 新增：绘制种子输入框
+    seed_text = font.render("地图种子（可选）:", True, (0, 0, 0))
+    screen.blit(seed_text, (dialog_x + 50, dialog_y + 220))
+    seed_input = pygame.Rect(dialog_x + 200, dialog_y + 220, 100, 30)
+    pygame.draw.rect(screen, (200, 200, 200), seed_input)
+
     # 绘制确认按钮
-    confirm_button = pygame.Rect(dialog_x + 50, dialog_y + 230, 120, 50)
+    confirm_button = pygame.Rect(dialog_x + 50, dialog_y + 280, 120, 50)
     pygame.draw.rect(screen, (0, 200, 0), confirm_button)
     confirm_text = font.render("确定", True, (255, 255, 255))
     confirm_text_rect = confirm_text.get_rect(center=confirm_button.center)
     screen.blit(confirm_text, confirm_text_rect)
 
     # 绘制取消按钮
-    cancel_button = pygame.Rect(dialog_x + 230, dialog_y + 230, 120, 50)
+    cancel_button = pygame.Rect(dialog_x + 230, dialog_y + 280, 120, 50)
     pygame.draw.rect(screen, (200, 0, 0), cancel_button)
     cancel_text = font.render("取消", True, (255, 255, 255))
     cancel_text_rect = cancel_text.get_rect(center=cancel_button.center)
@@ -412,10 +473,14 @@ def show_setting_dialog(screen):
 
     pygame.display.flip()
 
+    # 初始化剪贴板
+    pygame.scrap.init()
+
     # 输入框内容，设置默认值
     rows_value = "16"
     cols_value = "30"
     mines_value = "99"
+    seed_value = ""  # 新增：种子输入框的默认值
 
     # 光标相关变量
     cursor_visible = True
@@ -434,7 +499,7 @@ def show_setting_dialog(screen):
                         cols = int(cols_value)
                         mines = int(mines_value)
                         if 9 <= rows <= 30 and 9 <= cols <= 30 and 1 <= mines <= min(rows * cols - 9, 199):
-                            return rows, cols, mines
+                            return rows, cols, mines, seed_value  # 返回种子值
                     except ValueError:
                         pass
                 elif cancel_button.collidepoint(event.pos):
@@ -446,6 +511,8 @@ def show_setting_dialog(screen):
                     active_input = 'cols'
                 elif mines_input.collidepoint(event.pos):
                     active_input = 'mines'
+                elif seed_input.collidepoint(event.pos):  # 新增：检测种子输入框
+                    active_input = 'seed'
                 else:
                     active_input = None
             if event.type == pygame.KEYDOWN and active_input:
@@ -456,6 +523,18 @@ def show_setting_dialog(screen):
                         cols_value = cols_value[:-1]
                     elif active_input == 'mines':
                         mines_value = mines_value[:-1]
+                    elif active_input == 'seed':  # 新增：处理种子输入框的退格键
+                        seed_value = seed_value[:-1]
+                elif event.key == pygame.K_v and (pygame.key.get_mods() & (pygame.KMOD_CTRL | pygame.KMOD_GUI)):  # 修改：兼容macOS的Command + V检测
+                    if active_input == 'seed':
+                        try:
+                            clipboard_text = pyperclip.paste()
+                            if clipboard_text is not None:
+                                seed_value += clipboard_text
+                            else:
+                                print("剪贴板为空")
+                        except Exception as e:
+                            print(f"无法获取剪贴板内容: {e}")
                 else:
                     if event.unicode.isdigit():
                         if active_input == 'rows':
@@ -464,6 +543,8 @@ def show_setting_dialog(screen):
                             cols_value += event.unicode
                         elif active_input == 'mines':
                             mines_value += event.unicode
+                    elif active_input == 'seed':  # 新增：允许输入种子
+                        seed_value += event.unicode
 
         # 更新输入框内容
         pygame.draw.rect(screen, (200, 200, 200), rows_input)
@@ -487,6 +568,14 @@ def show_setting_dialog(screen):
             cursor_x = mines_input.x + 5 + mines_text.get_width()
             pygame.draw.line(screen, (0, 0, 0), (cursor_x, mines_input.y + 5), (cursor_x, mines_input.y + 25))
 
+        # 新增：更新种子输入框内容
+        pygame.draw.rect(screen, (200, 200, 200), seed_input)
+        seed_text = font.render(seed_value, True, (0, 0, 0))
+        screen.blit(seed_text, (seed_input.x + 5, seed_input.y + 5))
+        if active_input == 'seed' and cursor_visible:
+            cursor_x = seed_input.x + 5 + seed_text.get_width()
+            pygame.draw.line(screen, (0, 0, 0), (cursor_x, seed_input.y + 5), (cursor_x, seed_input.y + 25))
+
         # 光标闪烁效果
         cursor_timer += 1
         if cursor_timer >= 400:
@@ -495,12 +584,13 @@ def show_setting_dialog(screen):
 
         pygame.display.flip()
 
+def save_map_seed_to_file(map_seed):
+    if map_seed:
+        with open("map_seed.txt", "w") as file:
+            file.write(map_seed)
 
 def main():
     global ROWS, COLS, MINES, WIDTH, HEIGHT, GRID_SIZE, font, screen
-
-    # 初始化屏幕
-    screen = pygame.display.set_mode((WIDTH, HEIGHT))
 
     # 显示设置对话框
     settings = show_setting_dialog(screen)
@@ -508,7 +598,7 @@ def main():
         pygame.quit()
         sys.exit()
 
-    ROWS, COLS, MINES = settings
+    ROWS, COLS, MINES, map_seed = settings  # 获取用户输入的设置，包括种子
     WIDTH, HEIGHT = GRID_SIZE * COLS, GRID_SIZE * ROWS + 80
 
     font = pygame.font.SysFont("SimHei", max(int(20*COLS/30), 14))
@@ -518,11 +608,32 @@ def main():
     pygame.display.set_caption("扫雷-自制版")
 
     game = GameState()
+
+    if map_seed:  # 根据种子初始化棋盘
+        parsed_seed = parse_map_seed(map_seed)
+        if parsed_seed:
+            ROWS, COLS, MINES = parsed_seed["rows"], parsed_seed["cols"], parsed_seed["mines"]
+            WIDTH, HEIGHT = GRID_SIZE * COLS, GRID_SIZE * ROWS + 80
+            game.board = create_board_safe_first_click(*parsed_seed["first_click"], seed=map_seed)
+            game.map_seed = map_seed
+            game.user_provided_seed = True
+            game.start_time = pygame.time.get_ticks()
+            screen = pygame.display.set_mode((WIDTH, HEIGHT))
+            pygame.display.set_caption("扫雷-自制版")
+
+            if not game.map_seed_save:
+                save_map_seed_to_file(game.map_seed)
+                game.map_seed_save = True
+        else:
+            pygame.quit()
+            sys.exit()
+
     running = True
+
+    draw_board(game)
 
     while running:
         # 游戏时间更新移到draw_board函数中
-
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
@@ -537,20 +648,29 @@ def main():
                 if not (0 <= row < ROWS and 0 <= col < COLS):
                     continue
 
-                if game.first_click:
+                if not game.user_provided_seed and game.first_click:
                     # 第一次点击时创建棋盘，确保点击的格子及其周围8个格子都不是雷
                     game.start_time = pygame.time.get_ticks()
                     game.board = game.create_board(row, col)
-                    game.first_click = False
+                    game.map_seed = generate_map_seed(row, col, game.board)
+                    print(f"当前地图种子：{game.map_seed}")
+                    if not game.map_seed_save:
+                        save_map_seed_to_file(game.map_seed)
+                        game.map_seed_save = True
+
 
                 cell = game.board[row][col]
 
                 if event.button == 1:  # 左键点击
+                    if game.first_click:
+                        game.first_click = False
                     if not cell.flagged and not cell.question_mark:
                         if cell.is_mine:
                             game.game_over = True
                         else:
+                            # 修改：确保第一下点击调用 reveal_safe_area 函数
                             reveal_safe_area(game, row, col)
+                            # 确保胜利条件只在适当的时候检查
                             if check_victory(game):
                                 game.victory = True
                 elif event.button == 3:  # 右键点击
@@ -567,7 +687,9 @@ def main():
                 if pygame.mouse.get_pressed() == (1, 0, 1):  # 左键和右键同时按下
                     handle_middle_click(game, row, col)
 
-                game.victory = check_victory(game)
+                # 确保胜利条件只在适当的时候检查
+                if check_victory(game):
+                    game.victory = True
 
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_r:  # 重置游戏
