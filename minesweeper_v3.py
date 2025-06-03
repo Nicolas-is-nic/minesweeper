@@ -35,7 +35,11 @@ NUMBER_COLORS = {
 pygame.init()
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
 pygame.display.set_caption("扫雷-自制版")
-font = pygame.font.SysFont("Arial", 20, bold=True)
+# font = pygame.font.SysFont("Arial", 20, bold=True)
+# 使用系统自带中文字体（Windows/Mac通用方案）
+font = pygame.font.SysFont("SimHei", 20)  # 黑体
+
+
 clock = pygame.time.Clock()
 
 
@@ -44,6 +48,7 @@ class Cell:
         self.is_mine = False
         self.revealed = False
         self.flagged = False
+        self.question_mark = False  # 新增：表示该格子是否被打上了问号
         self.neighbor_mines = 0
 
 
@@ -77,28 +82,16 @@ def count_neighbor_mines(board, x, y):
 
 class GameState:
     def __init__(self):
-        self.board = create_board()  # 调用独立函数
+        self.board = [[Cell() for _ in range(COLS)] for _ in range(ROWS)]  # 初始化时直接创建空棋盘
         self.game_over = False
         self.victory = False
-        self.start_time = pygame.time.get_ticks()
+        self.start_time = 0
         self.elapsed_time = 0
         self.cheat_count = 1  # 新增：作弊次数计数器
+        self.first_click = True  # 新增：标记是否为第一次点击
 
-    def create_board(self):
-        board = [[Cell() for _ in range(COLS)] for _ in range(ROWS)]
-
-        # 布置地雷
-        mines_pos = random.sample(range(ROWS * COLS), MINES)
-        for pos in mines_pos:
-            x, y = divmod(pos, COLS)
-            board[x][y].is_mine = True
-
-        # 计算相邻雷数
-        for i in range(ROWS):
-            for j in range(COLS):
-                if not board[i][j].is_mine:
-                    board[i][j].neighbor_mines = self.count_neighbor_mines(i, j)
-        return board
+    def create_board(self, first_click_row, first_click_col):
+        return create_board_safe_first_click(first_click_row, first_click_col)
 
     def count_neighbor_mines(self, x, y):
         count = 0
@@ -107,6 +100,33 @@ class GameState:
                 if self.board[i][j].is_mine:
                     count += 1
         return count
+
+
+def create_board_safe_first_click(first_click_row, first_click_col):
+    """ 确保第一次点击的格子及其周围8个格子都不是雷 """
+    board = [[Cell() for _ in range(COLS)] for _ in range(ROWS)]
+
+    # 生成所有可能的地雷位置，排除第一次点击的格子及其周围8个格子
+    safe_positions = set()
+    for i in range(max(0, first_click_row - 1), min(ROWS, first_click_row + 2)):
+        for j in range(max(0, first_click_col - 1), min(COLS, first_click_col + 2)):
+            safe_positions.add(i * COLS + j)
+
+    # 从所有可能的位置中排除安全位置
+    all_positions = set(range(ROWS * COLS))
+    mine_positions = random.sample(list(all_positions - safe_positions), MINES)
+
+    # 布置地雷
+    for pos in mine_positions:
+        x, y = divmod(pos, COLS)
+        board[x][y].is_mine = True
+
+    # 计算相邻雷数
+    for i in range(ROWS):
+        for j in range(COLS):
+            if not board[i][j].is_mine:
+                board[i][j].neighbor_mines = count_neighbor_mines(board, i, j)
+    return board
 
 
 def reveal_safe_area(game, row, col):
@@ -153,6 +173,51 @@ def check_victory(game):
     return safe_unrevealed == 0
 
 
+def show_cheat_confirmation(screen):
+    """ 使用pygame实现作弊确认对话框 """
+    # 创建半透明背景
+    overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+    overlay.fill((0, 0, 0, 128))  # 半透明黑色背景
+    screen.blit(overlay, (0, 0))
+
+    # 绘制对话框
+    dialog_width = 400
+    dialog_height = 200
+    dialog_x = (WIDTH - dialog_width) // 2
+    dialog_y = (HEIGHT - dialog_height) // 2
+    pygame.draw.rect(screen, (255, 255, 255), (dialog_x, dialog_y, dialog_width, dialog_height))
+
+    # 绘制提示文字
+    text = font.render("确定要使用作弊功能吗？", True, (0, 0, 0))
+    text_rect = text.get_rect(center=(WIDTH // 2, dialog_y + 60))
+    screen.blit(text, text_rect)
+
+    # 绘制确认按钮
+    confirm_button = pygame.Rect(dialog_x + 50, dialog_y + 120, 120, 50)
+    pygame.draw.rect(screen, (0, 200, 0), confirm_button)
+    confirm_text = font.render("确定", True, (255, 255, 255))
+    confirm_text_rect = confirm_text.get_rect(center=confirm_button.center)
+    screen.blit(confirm_text, confirm_text_rect)
+
+    # 绘制取消按钮
+    cancel_button = pygame.Rect(dialog_x + 230, dialog_y + 120, 120, 50)
+    pygame.draw.rect(screen, (200, 0, 0), cancel_button)
+    cancel_text = font.render("取消", True, (255, 255, 255))
+    cancel_text_rect = cancel_text.get_rect(center=cancel_button.center)
+    screen.blit(cancel_text, cancel_text_rect)
+
+    pygame.display.flip()
+
+    # 等待用户点击
+    while True:
+        for event in pygame.event.get():
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                if confirm_button.collidepoint(event.pos):
+                    return True
+                elif cancel_button.collidepoint(event.pos):
+                    return False
+
+
 def draw_board(game):
     screen.fill(COLORS["bg"])
 
@@ -190,23 +255,30 @@ def draw_board(game):
                         (j * GRID_SIZE + (GRID_SIZE // 2), i * GRID_SIZE + (GRID_SIZE // 1.5)),
                         (j * GRID_SIZE + (GRID_SIZE // 4), i * GRID_SIZE + (GRID_SIZE // 1.5))
                     ])
+                elif cell.question_mark:
+                    # 绘制问号
+                    text = font.render("?", True, (0, 0, 0))
+                    screen.blit(text, (j * GRID_SIZE + (GRID_SIZE / 2 - 5) - 1, i * GRID_SIZE + (GRID_SIZE / 2 - 10) - 1))
 
     # 如果按下M键且鼠标悬停在已翻开的格子上，检查周围8格的地雷情况
     keys = pygame.key.get_pressed()
     if keys[pygame.K_m] and 0 <= mouse_row < ROWS and 0 <= mouse_col < COLS and game.cheat_count > 0:
         cell = game.board[mouse_row][mouse_col]
         if cell.revealed:
-            for i in range(max(0, mouse_row - 1), min(ROWS, mouse_row + 2)):
-                for j in range(max(0, mouse_col - 1), min(COLS, mouse_col + 2)):
-                    if i == mouse_row and j == mouse_col:
-                        continue
-                    neighbor = game.board[i][j]
-                    if neighbor.is_mine and not neighbor.flagged:
-                        # 将未标记的地雷格子颜色变为淡红色
-                        rect = pygame.Rect(j * GRID_SIZE, i * GRID_SIZE, GRID_SIZE - 2, GRID_SIZE - 2)
-                        pygame.draw.rect(screen, (255, 182, 193), rect)
-                        neighbor.cheat_highlighted = True  # 标记为作弊高亮
-            game.cheat_count -= 1  # 减少作弊次数
+            # 使用pygame显示作弊确认对话框
+            response = show_cheat_confirmation(screen)
+            if response:
+                for i in range(max(0, mouse_row - 1), min(ROWS, mouse_row + 2)):
+                    for j in range(max(0, mouse_col - 1), min(COLS, mouse_col + 2)):
+                        if i == mouse_row and j == mouse_col:
+                            continue
+                        neighbor = game.board[i][j]
+                        if neighbor.is_mine and not neighbor.flagged:
+                            # 将未标记的地雷格子颜色变为淡红色
+                            rect = pygame.Rect(j * GRID_SIZE, i * GRID_SIZE, GRID_SIZE - 2, GRID_SIZE - 2)
+                            pygame.draw.rect(screen, (255, 182, 193), rect)
+                            neighbor.cheat_highlighted = True  # 标记为作弊高亮
+                game.cheat_count -= 1  # 减少作弊次数
 
     # 绘制被作弊高亮的地雷格子
     for i in range(ROWS):
@@ -230,7 +302,7 @@ def draw_board(game):
     screen.blit(text, (10, HEIGHT - 40))
 
     # 游戏时间
-    if not game.game_over and not game.victory:  # 游戏未结束时才更新时间
+    if not game.game_over and not game.victory and (game.first_click is False):  # 游戏未结束时才更新时间
         game.elapsed_time = (pygame.time.get_ticks() - game.start_time) // 1000
     time_text = font.render(f"Time: {game.elapsed_time}s", True, COLORS["timer"])
     screen.blit(time_text, (WIDTH - 120, HEIGHT - 40))
@@ -263,24 +335,31 @@ def main():
                 if not (0 <= row < ROWS and 0 <= col < COLS):
                     continue
 
+                if game.first_click:
+                    # 第一次点击时创建棋盘，确保点击的格子及其周围8个格子都不是雷
+                    game.start_time = pygame.time.get_ticks()
+                    game.board = game.create_board(row, col)
+                    game.first_click = False
+
                 cell = game.board[row][col]
 
-                if event.button == 1:  # 左键
-                    if cell.flagged:
-                        continue
-                    if cell.is_mine:
-                        # 显示所有地雷
-                        for r in game.board:
-                            for c in r:
-                                if c.is_mine:
-                                    c.revealed = True
-                        game.game_over = True
-                    else:
-                        reveal_safe_area(game, row, col)
-
-                elif event.button == 3:  # 右键
+                if event.button == 1:  # 左键点击
+                    if not cell.flagged and not cell.question_mark:
+                        if cell.is_mine:
+                            game.game_over = True
+                        else:
+                            reveal_safe_area(game, row, col)
+                            if check_victory(game):
+                                game.victory = True
+                elif event.button == 3:  # 右键点击
                     if not cell.revealed:
-                        cell.flagged = not cell.flagged
+                        if not cell.flagged and not cell.question_mark:
+                            cell.flagged = True
+                        elif cell.flagged:
+                            cell.flagged = False
+                            cell.question_mark = True
+                        elif cell.question_mark:
+                            cell.question_mark = False
 
                 # 检测左右键同时按下
                 if pygame.mouse.get_pressed() == (1, 0, 1):  # 左键和右键同时按下
