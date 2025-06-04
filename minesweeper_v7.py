@@ -115,6 +115,9 @@ class GameState:
         self.map_seed = None  # 新增：地图种子
         self.map_seed_save = False
         self.user_provided_seed = False  # 新增：标记种子是否是用户提供的
+        self.paused = False
+        self.pause_start_time = 0
+        self.total_paused_duration = 0  # 新增：记录总暂停时间
 
     def create_board(self, first_click_row, first_click_col):
         return create_board_safe_first_click(first_click_row, first_click_col)
@@ -290,126 +293,140 @@ def show_cheat_confirmation(screen):
 def draw_board(game):
     screen.fill(COLORS["bg"])
 
-    # 获取鼠标位置
-    mouse_x, mouse_y = pygame.mouse.get_pos()
-    mouse_row = mouse_y // GRID_SIZE
-    mouse_col = mouse_x // GRID_SIZE
+    # 绘制暂停状态覆盖层
+    if game.paused:
+        # 改为使用半透明黑色覆盖层
+        overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 128))  # 半透明黑色背景
+        screen.blit(overlay, (0, 0))
+        
+        # 绘制暂停文字
+        text = font.render("游戏暂停（按P恢复）", True, (255, 255, 255))  # 改为白色文字更清晰
+        text_rect = text.get_rect(center=(WIDTH//2, HEIGHT//2))
+        screen.blit(text, text_rect)
+    else:
+        # 绘制棋盘
+        # 获取鼠标位置
+        mouse_x, mouse_y = pygame.mouse.get_pos()
+        mouse_row = mouse_y // GRID_SIZE
+        mouse_col = mouse_x // GRID_SIZE
 
-    # 绘制网格
-    for i in range(ROWS):
-        for j in range(COLS):
-            cell = game.board[i][j]
-            rect = pygame.Rect(j * GRID_SIZE, i * GRID_SIZE, GRID_SIZE - 2, GRID_SIZE - 2)
+        # 绘制网格
+        for i in range(ROWS):
+            for j in range(COLS):
+                cell = game.board[i][j]
+                rect = pygame.Rect(j * GRID_SIZE, i * GRID_SIZE, GRID_SIZE - 2, GRID_SIZE - 2)
 
-            if cell.revealed or game.game_over or game.victory:  # 修改：游戏结束时显示所有地雷
-                pygame.draw.rect(screen, COLORS["revealed"], rect)
-                if cell.neighbor_mines > 0 and not cell.is_mine:
-                    if cell.flagged:
-                        # 实际不为地雷的旗帜格子，显示为打叉
-                        pygame.draw.line(screen, (255, 0, 0),
-                                         (j * GRID_SIZE + GRID_SIZE // 4, i * GRID_SIZE + GRID_SIZE // 4),
-                                         (j * GRID_SIZE + 3 * GRID_SIZE // 4, i * GRID_SIZE + 3 * GRID_SIZE // 4), 3)
-                        pygame.draw.line(screen, (255, 0, 0),
-                                         (j * GRID_SIZE + GRID_SIZE // 4, i * GRID_SIZE + 3 * GRID_SIZE // 4),
-                                         (j * GRID_SIZE + 3 * GRID_SIZE // 4, i * GRID_SIZE + GRID_SIZE // 4), 3)
-                    else:
-                        color = NUMBER_COLORS[cell.neighbor_mines]
-                        text = font.render(str(cell.neighbor_mines), True, color)
-                        screen.blit(text, (j * GRID_SIZE + (GRID_SIZE / 2 - 5) - 1, i * GRID_SIZE + (GRID_SIZE / 2 - 10) - 1))
-                elif cell.is_mine:
-                    if game.game_over or game.victory:
+                if cell.revealed or game.game_over or game.victory:  # 修改：游戏结束时显示所有地雷
+                    pygame.draw.rect(screen, COLORS["revealed"], rect)
+                    if cell.neighbor_mines > 0 and not cell.is_mine:
                         if cell.flagged:
-                            # 保持旗帜不变
-                            pygame.draw.polygon(screen, (255, 0, 0), [
-                                (j * GRID_SIZE + GRID_SIZE // 2, i * GRID_SIZE + (GRID_SIZE // 4)),
-                                (j * GRID_SIZE + (GRID_SIZE // 2), i * GRID_SIZE + (GRID_SIZE // 1.5)),
-                                (j * GRID_SIZE + (GRID_SIZE // 4), i * GRID_SIZE + (GRID_SIZE // 1.5))
-                            ])
+                            # 实际不为地雷的旗帜格子，显示为打叉
+                            pygame.draw.line(screen, (255, 0, 0),
+                                             (j * GRID_SIZE + GRID_SIZE // 4, i * GRID_SIZE + GRID_SIZE // 4),
+                                             (j * GRID_SIZE + 3 * GRID_SIZE // 4, i * GRID_SIZE + 3 * GRID_SIZE // 4), 3)
+                            pygame.draw.line(screen, (255, 0, 0),
+                                             (j * GRID_SIZE + GRID_SIZE // 4, i * GRID_SIZE + 3 * GRID_SIZE // 4),
+                                             (j * GRID_SIZE + 3 * GRID_SIZE // 4, i * GRID_SIZE + GRID_SIZE // 4), 3)
                         else:
-                            # 显示地雷
+                            color = NUMBER_COLORS[cell.neighbor_mines]
+                            text = font.render(str(cell.neighbor_mines), True, color)
+                            screen.blit(text, (j * GRID_SIZE + (GRID_SIZE / 2 - 5) - 1, i * GRID_SIZE + (GRID_SIZE / 2 - 10) - 1))
+                    elif cell.is_mine:
+                        if game.game_over or game.victory:
+                            if cell.flagged:
+                                # 保持旗帜不变
+                                pygame.draw.polygon(screen, (255, 0, 0), [
+                                    (j * GRID_SIZE + GRID_SIZE // 2, i * GRID_SIZE + (GRID_SIZE // 4)),
+                                    (j * GRID_SIZE + (GRID_SIZE // 2), i * GRID_SIZE + (GRID_SIZE // 1.5)),
+                                    (j * GRID_SIZE + (GRID_SIZE // 4), i * GRID_SIZE + (GRID_SIZE // 1.5))
+                                ])
+                            else:
+                                # 显示地雷
+                                pygame.draw.circle(screen, (0, 0, 0),
+                                                   (j * GRID_SIZE + (GRID_SIZE / 2) - 1, i * GRID_SIZE + (GRID_SIZE / 2) - 1), 8)
+                        else:
+                            # 正常显示地雷
                             pygame.draw.circle(screen, (0, 0, 0),
                                                (j * GRID_SIZE + (GRID_SIZE / 2) - 1, i * GRID_SIZE + (GRID_SIZE / 2) - 1), 8)
-                    else:
-                        # 正常显示地雷
-                        pygame.draw.circle(screen, (0, 0, 0),
-                                           (j * GRID_SIZE + (GRID_SIZE / 2) - 1, i * GRID_SIZE + (GRID_SIZE / 2) - 1), 8)
-            else:
-                pygame.draw.rect(screen, COLORS["hidden"], rect)
-                if cell.flagged:
-                    # 保持旗帜不变
-                    pygame.draw.polygon(screen, (255, 0, 0), [
-                        (j * GRID_SIZE + GRID_SIZE // 2, i * GRID_SIZE + (GRID_SIZE // 4)),
-                        (j * GRID_SIZE + (GRID_SIZE // 2), i * GRID_SIZE + (GRID_SIZE // 1.5)),
-                        (j * GRID_SIZE + (GRID_SIZE // 4), i * GRID_SIZE + (GRID_SIZE // 1.5))
-                    ])
-                elif cell.question_mark:
-                    # 绘制问号
-                    text = font.render("?", True, (0, 0, 0))
-                    screen.blit(text, (j * GRID_SIZE + (GRID_SIZE / 2 - 5) - 1, i * GRID_SIZE + (GRID_SIZE / 2 - 10) - 1))
+                else:
+                    pygame.draw.rect(screen, COLORS["hidden"], rect)
+                    if cell.flagged:
+                        # 保持旗帜不变
+                        pygame.draw.polygon(screen, (255, 0, 0), [
+                            (j * GRID_SIZE + GRID_SIZE // 2, i * GRID_SIZE + (GRID_SIZE // 4)),
+                            (j * GRID_SIZE + (GRID_SIZE // 2), i * GRID_SIZE + (GRID_SIZE // 1.5)),
+                            (j * GRID_SIZE + (GRID_SIZE // 4), i * GRID_SIZE + (GRID_SIZE // 1.5))
+                        ])
+                    elif cell.question_mark:
+                        # 绘制问号
+                        text = font.render("?", True, (0, 0, 0))
+                        screen.blit(text, (j * GRID_SIZE + (GRID_SIZE / 2 - 5) - 1, i * GRID_SIZE + (GRID_SIZE / 2 - 10) - 1))
 
-    # 如果用户传入了种子且处于首次点击前，绘制空心圆提示位置
-    if game.user_provided_seed and game.first_click:
-        parsed_seed = parse_map_seed(game.map_seed)
-        if parsed_seed:
-            first_click_row, first_click_col = parsed_seed["first_click"]
-            rect = pygame.Rect(first_click_col * GRID_SIZE, first_click_row * GRID_SIZE, GRID_SIZE - 2, GRID_SIZE - 2)
-            pygame.draw.circle(screen, (255, 255, 0), (rect.centerx, rect.centery), GRID_SIZE // 4, 2)
+        # 如果用户传入了种子且处于首次点击前，绘制空心圆提示位置
+        if game.user_provided_seed and game.first_click:
+            parsed_seed = parse_map_seed(game.map_seed)
+            if parsed_seed:
+                first_click_row, first_click_col = parsed_seed["first_click"]
+                rect = pygame.Rect(first_click_col * GRID_SIZE, first_click_row * GRID_SIZE, GRID_SIZE - 2, GRID_SIZE - 2)
+                pygame.draw.circle(screen, (255, 255, 0), (rect.centerx, rect.centery), GRID_SIZE // 4, 2)
 
-    # 如果按下M键且鼠标悬停在已翻开的格子上，检查周围8格的地雷情况
-    keys = pygame.key.get_pressed()
-    if keys[pygame.K_m] and 0 <= mouse_row < ROWS and 0 <= mouse_col < COLS and game.cheat_count > 0:
-        cell = game.board[mouse_row][mouse_col]
-        if cell.revealed:
-            # 使用pygame显示作弊确认对话框
-            response = show_cheat_confirmation(screen)
-            if response:
-                for i in range(max(0, mouse_row - 1), min(ROWS, mouse_row + 2)):
-                    for j in range(max(0, mouse_col - 1), min(COLS, mouse_col + 2)):
-                        if i == mouse_row and j == mouse_col:
-                            continue
-                        neighbor = game.board[i][j]
-                        if neighbor.is_mine and not neighbor.flagged:
-                            # 将未标记的地雷格子颜色变为淡红色
-                            rect = pygame.Rect(j * GRID_SIZE, i * GRID_SIZE, GRID_SIZE - 2, GRID_SIZE - 2)
-                            pygame.draw.rect(screen, (255, 182, 193), rect)
-                            neighbor.cheat_highlighted = True  # 标记为作弊高亮
-                game.cheat_count -= 1  # 减少作弊次数
+        # 如果按下M键且鼠标悬停在已翻开的格子上，检查周围8格的地雷情况
+        keys = pygame.key.get_pressed()
+        if keys[pygame.K_m] and 0 <= mouse_row < ROWS and 0 <= mouse_col < COLS and game.cheat_count > 0:
+            cell = game.board[mouse_row][mouse_col]
+            if cell.revealed:
+                # 使用pygame显示作弊确认对话框
+                response = show_cheat_confirmation(screen)
+                if response:
+                    for i in range(max(0, mouse_row - 1), min(ROWS, mouse_row + 2)):
+                        for j in range(max(0, mouse_col - 1), min(COLS, mouse_col + 2)):
+                            if i == mouse_row and j == mouse_col:
+                                continue
+                            neighbor = game.board[i][j]
+                            if neighbor.is_mine and not neighbor.flagged:
+                                # 将未标记的地雷格子颜色变为淡红色
+                                rect = pygame.Rect(j * GRID_SIZE, i * GRID_SIZE, GRID_SIZE - 2, GRID_SIZE - 2)
+                                pygame.draw.rect(screen, (255, 182, 193), rect)
+                                neighbor.cheat_highlighted = True  # 标记为作弊高亮
+                    game.cheat_count -= 1  # 减少作弊次数
 
-    # 绘制被作弊高亮的地雷格子
-    for i in range(ROWS):
-        for j in range(COLS):
-            cell = game.board[i][j]
-            if hasattr(cell, 'cheat_highlighted') and cell.cheat_highlighted and cell.is_mine and not cell.flagged:
-                rect = pygame.Rect(j * GRID_SIZE, i * GRID_SIZE, GRID_SIZE - 2, GRID_SIZE - 2)
-                pygame.draw.rect(screen, (255, 182, 193), rect)
+        # 绘制被作弊高亮的地雷格子
+        for i in range(ROWS):
+            for j in range(COLS):
+                cell = game.board[i][j]
+                if hasattr(cell, 'cheat_highlighted') and cell.cheat_highlighted and cell.is_mine and not cell.flagged:
+                    rect = pygame.Rect(j * GRID_SIZE, i * GRID_SIZE, GRID_SIZE - 2, GRID_SIZE - 2)
+                    pygame.draw.rect(screen, (255, 182, 193), rect)
 
-    # 状态显示
-    if game.game_over or game.victory:
-        status_text = "Game Over!" if game.game_over else "You Win!"
-        text = font.render(status_text, True, COLORS["mine_count"])
-        text_rect = text.get_rect(center=(WIDTH // 2, HEIGHT // 2))  # 修改：将文字显示在屏幕中央
+        # 状态显示
+        if game.game_over or game.victory:
+            status_text = "Game Over!" if game.game_over else "You Win!"
+            text = font.render(status_text, True, COLORS["mine_count"])
+            text_rect = text.get_rect(center=(WIDTH // 2, HEIGHT // 2))  # 修改：将文字显示在屏幕中央
+            screen.blit(text, text_rect)
+            text = font.render("Press R to restart", True, COLORS["mine_count"])
+            text_rect = text.get_rect(center=(WIDTH // 2, HEIGHT // 2 + 30))  # 修改：将文字显示在屏幕中央
+            screen.blit(text, text_rect)
+
+        # 剩余雷数
+        remaining = MINES - sum(cell.flagged for row in game.board for cell in row)
+        text = font.render(f"Mines left: {remaining}", True, COLORS["mine_count"])
+        text_rect = text.get_rect(topleft=(10, HEIGHT - 40))
         screen.blit(text, text_rect)
-        text = font.render("Press R to restart", True, COLORS["mine_count"])
-        text_rect = text.get_rect(center=(WIDTH // 2, HEIGHT // 2 + 30))  # 修改：将文字显示在屏幕中央
-        screen.blit(text, text_rect)
 
-    # 剩余雷数
-    remaining = MINES - sum(cell.flagged for row in game.board for cell in row)
-    text = font.render(f"Mines left: {remaining}", True, COLORS["mine_count"])
-    text_rect = text.get_rect(topleft=(10, HEIGHT - 40))
-    screen.blit(text, text_rect)
+        # 游戏时间（修改时间计算逻辑）
+        if not game.game_over and not game.victory and (game.first_click is False) and not game.paused:
+            current_time = pygame.time.get_ticks()
+            game.elapsed_time = (current_time - game.start_time - game.total_paused_duration) // 1000
+        time_text = font.render(f"Time: {game.elapsed_time}s", True, COLORS["timer"])
+        text_rect = time_text.get_rect(topright=(WIDTH - 10, HEIGHT - 40))
+        screen.blit(time_text, text_rect)
 
-    # 游戏时间
-    if not game.game_over and not game.victory and (game.first_click is False):  # 游戏未结束时才更新时间
-        game.elapsed_time = (pygame.time.get_ticks() - game.start_time) // 1000
-    time_text = font.render(f"Time: {game.elapsed_time}s", True, COLORS["timer"])
-    text_rect = time_text.get_rect(topright=(WIDTH - 10, HEIGHT - 40))
-    screen.blit(time_text, text_rect)
-
-    # 剩余作弊次数（调整位置到左上角）
-    cheat_text = font.render(f"Cheats(Press M): {game.cheat_count}", True, COLORS["mine_count"])
-    text_rect = cheat_text.get_rect(topleft=(10, HEIGHT - 70))
-    screen.blit(cheat_text, text_rect)
+        # 剩余作弊次数（调整位置到左上角）
+        cheat_text = font.render(f"Cheats(Press M): {game.cheat_count}", True, COLORS["mine_count"])
+        text_rect = cheat_text.get_rect(topleft=(10, HEIGHT - 70))
+        screen.blit(cheat_text, text_rect)
 
     pygame.display.flip()
 
@@ -640,66 +657,76 @@ def main():
                 pygame.quit()
                 sys.exit()
 
-            if event.type == pygame.MOUSEBUTTONDOWN and not game.game_over and not game.victory:
-                x, y = event.pos
-                col = x // GRID_SIZE
-                row = y // GRID_SIZE
-
-                if not (0 <= row < ROWS and 0 <= col < COLS):
-                    continue
-
-                if not game.user_provided_seed and game.first_click:
-                    # 第一次点击时创建棋盘，确保点击的格子及其周围8个格子都不是雷
-                    game.start_time = pygame.time.get_ticks()
-                    game.board = game.create_board(row, col)
-                    game.map_seed = generate_map_seed(row, col, game.board)
-                    print(f"当前地图种子：{game.map_seed}")
-                    if not game.map_seed_save:
-                        save_map_seed_to_file(game.map_seed)
-                        game.map_seed_save = True
-
-
-                cell = game.board[row][col]
-
-                if event.button == 1:  # 左键点击
-                    if game.first_click:
-                        game.first_click = False
-                    if not cell.flagged and not cell.question_mark:
-                        if cell.is_mine:
-                            game.game_over = True
-                        else:
-                            # 修改：确保第一下点击调用 reveal_safe_area 函数
-                            reveal_safe_area(game, row, col)
-                            # 确保胜利条件只在适当的时候检查
-                            if check_victory(game):
-                                game.victory = True
-                elif event.button == 3:  # 右键点击
-                    if not cell.revealed:
-                        if not cell.flagged and not cell.question_mark:
-                            cell.flagged = True
-                        elif cell.flagged:
-                            cell.flagged = False
-                            cell.question_mark = True
-                        elif cell.question_mark:
-                            cell.question_mark = False
-
-                # 检测左右键同时按下
-                if pygame.mouse.get_pressed() == (1, 0, 1):  # 左键和右键同时按下
-                    handle_middle_click(game, row, col)
-
-                # 确保胜利条件只在适当的时候检查
-                if check_victory(game):
-                    game.victory = True
-
-            if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_r:  # 重置游戏
-                    game = GameState()
-                elif event.key == pygame.K_SPACE:  # 空格键
-                    x, y = pygame.mouse.get_pos()
+            if not game.paused:  # 只在未暂停时处理用户输入
+                if event.type == pygame.MOUSEBUTTONDOWN and not game.game_over and not game.victory:
+                    x, y = event.pos
                     col = x // GRID_SIZE
                     row = y // GRID_SIZE
-                    if 0 <= row < ROWS and 0 <= col < COLS:
+
+                    if not (0 <= row < ROWS and 0 <= col < COLS):
+                        continue
+
+                    if not game.user_provided_seed and game.first_click:
+                        # 第一次点击时创建棋盘，确保点击的格子及其周围8个格子都不是雷
+                        game.start_time = pygame.time.get_ticks()
+                        game.board = game.create_board(row, col)
+                        game.map_seed = generate_map_seed(row, col, game.board)
+                        print(f"当前地图种子：{game.map_seed}")
+                        if not game.map_seed_save:
+                            save_map_seed_to_file(game.map_seed)
+                            game.map_seed_save = True
+
+                    cell = game.board[row][col]
+
+                    if event.button == 1:  # 左键点击
+                        if game.first_click:
+                            game.first_click = False
+                        if not cell.flagged and not cell.question_mark:
+                            if cell.is_mine:
+                                game.game_over = True
+                            else:
+                                # 修改：确保第一下点击调用 reveal_safe_area 函数
+                                reveal_safe_area(game, row, col)
+                                # 确保胜利条件只在适当的时候检查
+                                if check_victory(game):
+                                    game.victory = True
+                    elif event.button == 3:  # 右键点击
+                        if not cell.revealed:
+                            if not cell.flagged and not cell.question_mark:
+                                cell.flagged = True
+                            elif cell.flagged:
+                                cell.flagged = False
+                                cell.question_mark = True
+                            elif cell.question_mark:
+                                cell.question_mark = False
+
+                    # 检测左右键同时按下
+                    if pygame.mouse.get_pressed() == (1, 0, 1):  # 左键和右键同时按下
                         handle_middle_click(game, row, col)
+
+                    # 确保胜利条件只在适当的时候检查
+                    if check_victory(game):
+                        game.victory = True
+
+                if event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_r:  # 重置游戏
+                        game = GameState()
+                    elif event.key == pygame.K_SPACE:  # 空格键
+                        x, y = pygame.mouse.get_pos()
+                        col = x // GRID_SIZE
+                        row = y // GRID_SIZE
+                        if 0 <= row < ROWS and 0 <= col < COLS:
+                            handle_middle_click(game, row, col)
+
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_p:  # 新增：暂停功能
+                    game.paused = not game.paused
+                    if game.paused:
+                        game.pause_start_time = pygame.time.get_ticks()
+                    else:
+                        # 累计暂停时间
+                        pause_duration = pygame.time.get_ticks() - game.pause_start_time
+                        game.total_paused_duration += pause_duration
 
         draw_board(game)
         clock.tick(30)
