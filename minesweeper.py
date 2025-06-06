@@ -3,6 +3,8 @@ import random
 import sys
 import os
 import pyperclip
+import json
+import zlib
 
 # 游戏配置
 
@@ -132,29 +134,86 @@ class GameState:
 
 
 def generate_map_seed(first_click_row, first_click_col, board):
-    """ 生成地图种子 """
-    import base64
-    import json
-    import zlib
-    data = {
-        "rows": ROWS,
-        "cols": COLS,
-        "mines": MINES,
-        "first_click": (first_click_row, first_click_col),
-        "board": [[cell.is_mine for cell in row] for row in board]
-    }
-    compressed_data = zlib.compress(json.dumps(data).encode())
-    return base64.urlsafe_b64encode(compressed_data).decode()
+    """ 生成地图种子 - 新版本使用更紧凑的编码 """
+    # 尝试使用新的紧凑编码方式
+    try:
+        import bitarray
+        import base64
+        
+        # 版本标识
+        version = b'v2'
+        
+        # 基础信息 (行,列,雷数,首次点击位置)
+        header = bytes([
+            ROWS, COLS, MINES & 0xff, MINES >> 8,
+            first_click_row, first_click_col
+        ])
+        
+        # 生成地雷位图
+        ba = bitarray.bitarray()
+        for row in board:
+            for cell in row:
+                ba.append(cell.is_mine)
+        
+        # 压缩并编码
+        compressed = zlib.compress(version + header + ba.tobytes())
+        return base64.urlsafe_b64encode(compressed).decode()
+    except:
+        # 新编码方式失败时回退到旧方法
+        import base64
+        import json
+        data = {
+            "rows": ROWS,
+            "cols": COLS,
+            "mines": MINES,
+            "first_click": (first_click_row, first_click_col),
+            "board": [[cell.is_mine for cell in row] for row in board]
+        }
+        compressed_data = zlib.compress(json.dumps(data).encode())
+        return base64.urlsafe_b64encode(compressed_data).decode()
 
 def parse_map_seed(seed):
-    """ 解析地图种子 """
+    """ 解析地图种子 - 兼容新旧版本 """
     import base64
-    import json
-    import zlib
+    import bitarray
+    
     try:
         decompressed_data = zlib.decompress(base64.urlsafe_b64decode(seed))
-        data = json.loads(decompressed_data.decode())
-        return data
+        
+        # 检测是否为新的紧凑格式 (开头是'v2')
+        if decompressed_data.startswith(b'v2'):
+            # 解析新格式
+            header = decompressed_data[2:8]
+            rows, cols, mines_low, mines_high, first_row, first_col = header
+            mines = mines_low | (mines_high << 8)
+            
+            # 读取地雷位图
+            ba = bitarray.bitarray()
+            ba.frombytes(decompressed_data[8:])
+            
+            # 构建返回数据
+            data = {
+                "rows": rows,
+                "cols": cols,
+                "mines": mines,
+                "first_click": (first_row, first_col),
+                "board": []
+            }
+            
+            # 重建地雷分布
+            pos = 0
+            for _ in range(rows):
+                row = []
+                for _ in range(cols):
+                    row.append(ba[pos])
+                    pos += 1
+                data["board"].append(row)
+            
+            return data
+        else:
+            # 解析旧格式
+            data = json.loads(decompressed_data.decode())
+            return data
     except:
         return None
 
