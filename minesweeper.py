@@ -46,6 +46,7 @@ def resource_path(relative_path):
         base_path = os.path.abspath(".")
     return os.path.join(base_path, relative_path)
 
+
 # 初始化Pygame
 pygame.init()
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
@@ -61,11 +62,9 @@ except:
 pygame.display.set_caption("扫雷-自制版")
 # font = pygame.font.SysFont("Arial", 20, bold=True)
 # 使用系统自带中文字体（Windows/Mac通用方案）
-font = pygame.font.SysFont("SimHei", max(int(20*COLS/30), 14))  # 黑体
-
+font = pygame.font.SysFont("SimHei", max(int(20 * COLS / 30), 14))  # 黑体
 
 clock = pygame.time.Clock()
-
 
 
 class Cell:
@@ -139,22 +138,22 @@ def generate_map_seed(first_click_row, first_click_col, board):
     try:
         import bitarray
         import base64
-        
+
         # 版本标识
         version = b'v2'
-        
+
         # 基础信息 (行,列,雷数,首次点击位置)
         header = bytes([
             ROWS, COLS, MINES & 0xff, MINES >> 8,
             first_click_row, first_click_col
         ])
-        
+
         # 生成地雷位图
         ba = bitarray.bitarray()
         for row in board:
             for cell in row:
                 ba.append(cell.is_mine)
-        
+
         # 压缩并编码
         compressed = zlib.compress(version + header + ba.tobytes())
         return base64.urlsafe_b64encode(compressed).decode()
@@ -172,25 +171,26 @@ def generate_map_seed(first_click_row, first_click_col, board):
         compressed_data = zlib.compress(json.dumps(data).encode())
         return base64.urlsafe_b64encode(compressed_data).decode()
 
+
 def parse_map_seed(seed):
     """ 解析地图种子 - 兼容新旧版本 """
     import base64
     import bitarray
-    
+
     try:
         decompressed_data = zlib.decompress(base64.urlsafe_b64decode(seed))
-        
+
         # 检测是否为新的紧凑格式 (开头是'v2')
         if decompressed_data.startswith(b'v2'):
             # 解析新格式
             header = decompressed_data[2:8]
             rows, cols, mines_low, mines_high, first_row, first_col = header
             mines = mines_low | (mines_high << 8)
-            
+
             # 读取地雷位图
             ba = bitarray.bitarray()
             ba.frombytes(decompressed_data[8:])
-            
+
             # 构建返回数据
             data = {
                 "rows": rows,
@@ -199,7 +199,7 @@ def parse_map_seed(seed):
                 "first_click": (first_row, first_col),
                 "board": []
             }
-            
+
             # 重建地雷分布
             pos = 0
             for _ in range(rows):
@@ -208,7 +208,7 @@ def parse_map_seed(seed):
                     row.append(ba[pos])
                     pos += 1
                 data["board"].append(row)
-            
+
             return data
         else:
             # 解析旧格式
@@ -217,11 +217,13 @@ def parse_map_seed(seed):
     except:
         return None
 
+
 def create_board_safe_first_click(first_click_row, first_click_col, seed=None):
     """ 确保第一次点击的格子及其周围8个格子都不是雷 """
     if seed:
         parsed_seed = parse_map_seed(seed)
-        if parsed_seed and parsed_seed["rows"] == ROWS and parsed_seed["cols"] == COLS and parsed_seed["mines"] == MINES:
+        if parsed_seed and parsed_seed["rows"] == ROWS and parsed_seed["cols"] == COLS and parsed_seed[
+            "mines"] == MINES:
             board = [[Cell() for _ in range(COLS)] for _ in range(ROWS)]
             for i in range(ROWS):
                 for j in range(COLS):
@@ -358,10 +360,10 @@ def draw_board(game):
         overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
         overlay.fill((0, 0, 0, 128))  # 半透明黑色背景
         screen.blit(overlay, (0, 0))
-        
+
         # 绘制暂停文字
         text = font.render("游戏暂停（按P恢复）", True, (255, 255, 255))  # 改为白色文字更清晰
-        text_rect = text.get_rect(center=(WIDTH//2, HEIGHT//2))
+        text_rect = text.get_rect(center=(WIDTH // 2, HEIGHT // 2))
         screen.blit(text, text_rect)
     else:
         # 绘制棋盘
@@ -383,14 +385,16 @@ def draw_board(game):
                             # 实际不为地雷的旗帜格子，显示为打叉
                             pygame.draw.line(screen, (255, 0, 0),
                                              (j * GRID_SIZE + GRID_SIZE // 4, i * GRID_SIZE + GRID_SIZE // 4),
-                                             (j * GRID_SIZE + 3 * GRID_SIZE // 4, i * GRID_SIZE + 3 * GRID_SIZE // 4), 3)
+                                             (j * GRID_SIZE + 3 * GRID_SIZE // 4, i * GRID_SIZE + 3 * GRID_SIZE // 4),
+                                             3)
                             pygame.draw.line(screen, (255, 0, 0),
                                              (j * GRID_SIZE + GRID_SIZE // 4, i * GRID_SIZE + 3 * GRID_SIZE // 4),
                                              (j * GRID_SIZE + 3 * GRID_SIZE // 4, i * GRID_SIZE + GRID_SIZE // 4), 3)
                         else:
                             color = NUMBER_COLORS[cell.neighbor_mines]
                             text = font.render(str(cell.neighbor_mines), True, color)
-                            screen.blit(text, (j * GRID_SIZE + (GRID_SIZE / 2 - 5) - 1, i * GRID_SIZE + (GRID_SIZE / 2 - 10) - 1))
+                            screen.blit(text, (
+                            j * GRID_SIZE + (GRID_SIZE / 2 - 5) - 1, i * GRID_SIZE + (GRID_SIZE / 2 - 10) - 1))
                     elif cell.is_mine:
                         if game.game_over or game.victory:
                             if cell.flagged:
@@ -403,11 +407,13 @@ def draw_board(game):
                             else:
                                 # 显示地雷
                                 pygame.draw.circle(screen, (0, 0, 0),
-                                                   (j * GRID_SIZE + (GRID_SIZE / 2) - 1, i * GRID_SIZE + (GRID_SIZE / 2) - 1), 8)
+                                                   (j * GRID_SIZE + (GRID_SIZE / 2) - 1,
+                                                    i * GRID_SIZE + (GRID_SIZE / 2) - 1), 8)
                         else:
                             # 正常显示地雷
                             pygame.draw.circle(screen, (0, 0, 0),
-                                               (j * GRID_SIZE + (GRID_SIZE / 2) - 1, i * GRID_SIZE + (GRID_SIZE / 2) - 1), 8)
+                                               (j * GRID_SIZE + (GRID_SIZE / 2) - 1,
+                                                i * GRID_SIZE + (GRID_SIZE / 2) - 1), 8)
                 else:
                     pygame.draw.rect(screen, COLORS["hidden"], rect)
                     if cell.flagged:
@@ -420,14 +426,16 @@ def draw_board(game):
                     elif cell.question_mark:
                         # 绘制问号
                         text = font.render("?", True, (0, 0, 0))
-                        screen.blit(text, (j * GRID_SIZE + (GRID_SIZE / 2 - 5) - 1, i * GRID_SIZE + (GRID_SIZE / 2 - 10) - 1))
+                        screen.blit(text,
+                                    (j * GRID_SIZE + (GRID_SIZE / 2 - 5) - 1, i * GRID_SIZE + (GRID_SIZE / 2 - 10) - 1))
 
         # 如果用户传入了种子且处于首次点击前，绘制空心圆提示位置
         if game.user_provided_seed and game.first_click:
             parsed_seed = parse_map_seed(game.map_seed)
             if parsed_seed:
                 first_click_row, first_click_col = parsed_seed["first_click"]
-                rect = pygame.Rect(first_click_col * GRID_SIZE, first_click_row * GRID_SIZE, GRID_SIZE - 2, GRID_SIZE - 2)
+                rect = pygame.Rect(first_click_col * GRID_SIZE, first_click_row * GRID_SIZE, GRID_SIZE - 2,
+                                   GRID_SIZE - 2)
                 pygame.draw.circle(screen, (255, 255, 0), (rect.centerx, rect.centery), GRID_SIZE // 4, 2)
 
         # 如果按下M键且鼠标悬停在已翻开的格子上，检查周围8格的地雷情况
@@ -601,7 +609,8 @@ def show_setting_dialog(screen):
                         mines_value = mines_value[:-1]
                     elif active_input == 'seed':  # 新增：处理种子输入框的退格键
                         seed_value = seed_value[:-1]
-                elif event.key == pygame.K_v and (pygame.key.get_mods() & (pygame.KMOD_CTRL | pygame.KMOD_GUI)):  # 修改：兼容macOS的Command + V检测
+                elif event.key == pygame.K_v and (
+                        pygame.key.get_mods() & (pygame.KMOD_CTRL | pygame.KMOD_GUI)):  # 修改：兼容macOS的Command + V检测
                     if active_input == 'seed':
                         try:
                             clipboard_text = pyperclip.paste()
@@ -660,10 +669,12 @@ def show_setting_dialog(screen):
 
         pygame.display.flip()
 
+
 def save_map_seed_to_file(map_seed):
     if map_seed:
         with open("map_seed.txt", "w") as file:
             file.write(map_seed)
+
 
 def main():
     global ROWS, COLS, MINES, WIDTH, HEIGHT, GRID_SIZE, font, screen
@@ -677,7 +688,7 @@ def main():
     ROWS, COLS, MINES, map_seed = settings  # 获取用户输入的设置，包括种子
     WIDTH, HEIGHT = GRID_SIZE * COLS, GRID_SIZE * ROWS + 80
 
-    font = pygame.font.SysFont("SimHei", max(int(20*COLS/30), 14))
+    font = pygame.font.SysFont("SimHei", max(int(20 * COLS / 30), 14))
 
     # 重新初始化屏幕
     screen = pygame.display.set_mode((WIDTH, HEIGHT))
